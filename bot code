@@ -1,0 +1,299 @@
+import discord
+import os
+import pandas as pd
+import xlrd
+import openpyxl
+import math
+from math import radians
+from keep_alive import keep_alive
+airplane_workbook = pd.ExcelFile('Airplane Info.xlsx')
+plane_df = airplane_workbook.parse('Planes')
+plane_df_fr = airplane_workbook.parse('Avions')
+airport_info = pd.ExcelFile('Airport Info.xlsx')
+airport_df = airport_info.parse('Airports')
+latlong = pd.ExcelFile('latlong.xlsx')
+location_df = latlong.parse('Locations')
+client = discord.Client()
+def planeinfo(aircraft):
+  if aircraft != None:
+    row_list = (plane_df[plane_df["Plane"]==aircraft].values[0]).tolist()
+    model = str(row_list[0])
+    category = str(row_list[1])
+    year = str(row_list[2])
+    max_range = str(row_list[3])
+    seats = str(row_list[4])
+    speed = str(row_list[5])
+    price = str(row_list[6])
+    return "Model: " + model + "\nCategory: " + category + "\nYear: " + year + "\nRange: " + max_range + "\nSeats: " + seats + "\nSpeed: " + speed + "\nPrice: " + price
+def auditfare(distance, comfort, delivery_speed, mode, lang):
+    distance = int(distance) 
+    comfort = int(comfort)
+    delivery_speed = int(delivery_speed)
+    if 0 < distance and distance <= 1999:
+      propconst = 0.56
+    elif 2000 <= distance and distance <= 5000:
+      propconst = 0.52
+    else: propconst = 0.47
+    if(mode == 'professional' or mode == 'Professional'):
+      y_fare = str(int(100 + 0.3 * distance * (1 + comfort/3000)))
+      j_fare = str(math.floor(int(y_fare) * 1.33))
+      f_fare = str(math.floor(int(y_fare) * 2.3))
+      c_fare = str(math.ceil(200 + propconst * distance * (1 + delivery_speed/500)))
+    elif(mode == 'tycoon' or mode == 'Tycoon'):
+      y_fare = str(int(120 + 0.27 * distance * (1 + comfort/3000)))
+      j_fare = str(math.floor(int(y_fare) * 1.33))
+      f_fare = str(math.floor(int(y_fare) * 2.3))
+      c_fare = str(math.ceil(200 + propconst * distance * (1 + delivery_speed/500)))
+    if lang == 'en':
+      return 'Economy fare: $' + y_fare + '\nBusiness fare: $' + j_fare + '\nFirst class fare: $' + f_fare + "\nCargo fare: $" + c_fare
+    elif lang == "fr":
+      return "Tarif de classe économique: $" + y_fare + "\nTarif de classe d'affaires: $" + j_fare + "Tarif de première classe: $" + f_fare + "Tarif pour une tonne de cargo: $" + c_fare
+def route_tax(dep, arr, aircraft_cat, lang):
+  dep_apt_info_list = (airport_df.loc[airport_df.IATA == dep].values[0]).tolist()
+  arr_apt_info_list = (airport_df.loc[airport_df.IATA == arr].values[0]).tolist()
+  dep_tax = float(dep_apt_info_list[2]) * float(aircraft_cat) / float(dep_apt_info_list[1])
+  arr_tax = float(arr_apt_info_list[2]) * float(aircraft_cat) / float(arr_apt_info_list[1])
+  routetax = math.ceil(dep_tax + arr_tax)
+  if lang == "en":
+    return "You will pay $"+str(routetax) +" in airport fees for one round trip with a category "+aircraft_cat+" aircraft between " + str(dep_apt_info_list[0]) + " and " + str(arr_apt_info_list[0]) + "."
+  elif lang == "fr":
+    return 'Vous payerez $'+str(routetax) +' en taxe d\'aéroport pour un vol avec un avion de catégorie '+aircraft_cat+'  entre ' + str(dep_apt_info_list[0]) + ' et ' + str(arr_apt_info_list[0]) + '.'
+def maintenance(price, wear, age, hangars, lang):
+  a_cost = int((int(price) * int(wear) / 1923)+86464)
+  d_cost = int((int(price) * (int(age) - 1) / 35) + a_cost)
+  if int(hangars) == 1:
+    a_cost *= 0.95
+    d_cost *= 0.95
+  elif int(hangars) == 2:
+    a_cost *= 0.9
+    d_cost *= 0.9
+  elif int(hangars) == 3:
+    a_cost *= 0.85
+    d_cost *= 0.85
+  if lang == "en":
+    return 'A check cost: $' + str(a_cost) + '\nD check cost: $' + str(d_cost)
+  elif lang == "fr":
+    return 'Prix du Check A: $ ' + str(a_cost) + '\nPrix du Check D: $' + str(d_cost)
+def shm_tax(price, bid, lang):
+  cap = 50
+  ratio = int(bid) / int(price)
+  rate = min(ratio / 0.2, cap)
+  tax = int(rate / 100 * int(price))
+  if lang == 'en':
+    return 'Estimated tax on an aircraft valued at $'+ str(price) + ' sold at $' + str(bid) + ' is $' + str(tax)
+  elif lang == 'fr':
+    return 'Pour un avion évalué à $' + str(price) + ' et vendu à un prix de $' + str(bid) + ', vous payerez $' + str(tax) + " en commission sur le marché d'occasion."
+def maxdistance(hours, speed, lang):
+  distance = int(speed) * ((int(hours) - 2) / 2)
+  if lang == 'en':
+    return "Max distance flyable in " + str(hours) + " hours at a cruising speed of " + speed + " kph is " + str(distance) + " km." 
+  elif lang == 'fr':
+    return "La distance maximale de vol en " + str(hours) + " heures à une vitesse de " + speed + " kph est " + distance + " km."
+def canfly(aircraft_cat, aircraft_range, dep, arr, lang):
+  dep_list = (location_df[location_df["Code"]==dep].values[0]).tolist()
+  arr_list = (location_df[location_df["Code"]==arr].values[0]).tolist()
+  dep_code = str(dep_list[0])
+  dep_lat = float(radians(dep_list[1]))
+  dep_long = float(radians(dep_list[2]))
+  dep_cat = int(((airport_df[airport_df["IATA"]==dep].values[0]).tolist())[1])
+  arr_code = str(arr_list[0])
+  arr_lat = float(radians(arr_list[1]))
+  arr_long = float(radians(arr_list[2]))
+  arr_cat = int(((airport_df[airport_df["IATA"]==arr].values[0]).tolist())[1])
+  distance = (math.acos(math.cos(((math.pi)/2)-dep_lat)*math.cos(((math.pi)/2)-arr_lat) +math.sin(((math.pi)/2)-dep_lat) * math.sin(((math.pi)/2)-arr_lat) * math.cos(dep_long - arr_long))) * 6371
+  if lang == 'en':
+    if int(aircraft_cat) <= dep_cat and int(aircraft_cat) <= arr_cat and distance <= float(aircraft_range):
+      return "The route between " +str(dep_code) + " and " + str(arr_code) + " is flyable by the selected aircraft"
+    else: 
+      return "The route between " +str(dep_code) + " and " + str(arr_code) + " is not flyable by the selected aircraft"
+  elif lang == 'fr':
+    if int(aircraft_cat) <= dep_cat and int(aircraft_cat) <= arr_cat and distance <= float(aircraft_range):
+      return "La route entre " +str(dep_code) + " et " + str(arr_code) + " peut être volé par l'avion selectionné"
+    else: 
+      return "La route entre " +str(dep_code) + " et " + str(arr_code) + " ne peut pas être volé par l'avion selectionné"
+def flighttime(speed, distance, lang):
+  airtime = int(distance) / int(speed) * 2 + 2
+  if lang == 'en':
+    return "The round trip time for an aircraft cruising at a speed of "+speed+"kph on a route "+distance+" km long is" + airtime + "hours. Note that in game, this value is rounded to the nearest 0.25 hours."
+  elif lang == 'fr':
+    return "Le temps de trajet aller-retour pour un avion volant à une vitesse de "+speed+"km/h sur un route de"+distance+" km est" + airtime + "heures. Notez que dans le jeu, ce chiffre est arrondi à 0,25hr près."
+@client.event
+async def on_message(cmd):
+  if cmd.author == client.user:
+    return
+  elif cmd.content.startswith(';planeinfo'):
+    aircraft = cmd.content[11:]
+    await cmd.channel.send(planeinfo(aircraft))
+  elif cmd.content.startswith(';flighttime'):
+    words = cmd.content
+    words = words.split()
+    speed = words[1]
+    distance = words[2]
+    if len(words) == 4:
+      lang = words[3]
+    else: 
+      lang == 'en'
+  elif cmd.content.startswith(';auditfare'):
+    words = str(cmd.content)
+    words = words.split()
+    distance = words[1]
+    comfort = words[2]
+    delivery_speed = words[3]
+    mode = words[4]
+    if len(words) == 6:
+      lang = words[5]
+    else: lang = 'en'
+    fare = auditfare(distance, comfort, delivery_speed, mode, lang)
+    await cmd.channel.send(fare)
+  elif cmd.content.startswith(';routetax'):
+    words = str(cmd.content)
+    words = words.split()
+    departure_airport = words[1]
+    arrival_airport = words[2]
+    category = words[3]
+    if len(words) == 5:
+      lang = words[4]
+    else: 
+      lang = 'en'
+    routetax = route_tax(departure_airport, arrival_airport, category, lang)
+    await cmd.channel.send(routetax)
+  elif cmd.content.startswith(';maintenance'):
+    words = str(cmd.content)
+    words = words.split()
+    price = words[1]
+    wear = words[2]
+    age = words[3]
+    hangars = words[4]
+    if len(words) == 6:
+      lang = words[5]
+    else: 
+      lang = 'en'
+    await cmd.channel.send(maintenance(price, wear, age, hangars, lang))
+  elif cmd.content.startswith(';shmtax'):
+    words = str(cmd.content)
+    words = words.split()
+    price = words[1]
+    bid = words[2]
+    if len(words) == 4:
+      lang = words[3]
+    else: 
+      lang = 'en'
+    await cmd.channel.send(shm_tax(price, bid, lang))
+  elif cmd.content.startswith(';maxdistance'):
+    words = str(cmd.content)
+    words = words.split()
+    hours = words[1]
+    speed = words[2]
+    if len(words) == 4:
+      lang = words[3]
+    else: 
+      lang = 'en'
+    await cmd.channel.send(maxdistance(hours, speed, lang))
+  elif cmd.content.startswith(';canfly'):
+    words = cmd.content
+    words = words.split()
+    aircraft_category = words[1]
+    aircraft_range = words[2]
+    departure_apt_code = words[3]
+    arrival_apt_code = words[4]
+    if len(words) == 5:
+      lang = 'en'
+    else:
+      lang = words[5]
+    await cmd.channel.send(canfly(aircraft_category, aircraft_range, departure_apt_code, arrival_apt_code, lang))
+  elif cmd.content == ';invite' or cmd.content == '; invite en':
+    await cmd.channel.send("Use the following link to invite the bot to your server: https://discord.com/api/oauth2/authorize?client_id=871852994206003240&permissions=103079331841&scope=bot")
+  elif cmd.content == ';invite fr':
+    await cmd.channel.send("Pour ajouter ce bot à votre serveur, utilisez le lien suivant: https://discord.com/api/oauth2/authorize?client_id=871852994206003240&permissions=103079331841&scope=bot")
+  elif cmd.content == ';reddit en' or cmd.content == ';reddit':
+    await cmd.channel.send("The subreddit for this game can be found at: https://www.reddit.com/r/AirlinesManagerTycoon")
+  elif cmd.content == ';reddit fr':
+    await cmd.channel.send("Le subreddit pour ce jeu peut être trouvé à: https://www.reddit.com/r/AirlinesManagerTycoon")
+  elif cmd.content == ';fleet en' or cmd.content == ';fleet':
+    await cmd.channel.send("__**Aircraft for Rank rush**__ \nTypically, a rank rusher's fleet will consist of old aircraft with low \"other costs,\" and low cost per seat. These include the following: \n\nIlyushin Il-96-300 (commonly shortened to Il963 or 963) - $367k/seat \nBoeing/Douglas DC8-55* and DC8-73* - $410k/seat and $406k/seat respectively \nBoeing 747-200B* - $445k/seat \nBoeing 747-400 - $449k/seat \nAirbus A380-800 (not recommended) - $472k/seat \n\nAircraft marked with an asterisk (*) are classic aircraft. These aircraft require a license, which costs upwards of 150 AM Coins, to be purchased without having to pay 20 AM coins every time you buy an aircraft. \n\n __**Aircraft for Roleplay**__ \n\nA role-playing airline will most often try to a) emulate a specific airline, or b) just try to create a generic modern airline. If you are the first kind of role-player, then follow whatever fleet strategy your real-life airline uses. For example, if you role-play the Irish low-cost carrier Ryanair (FR/RYR), you would use the Boeing 737-800 and 737-8-200 exclusively. If you are trying to create a generic modern airline, then the backbone of your fleet could be aircraft like the A330 and A350 families or the Boeing 777 and 787 for long-haul, and something like the Boeing 737 or Airbus A320 for shorter flights.")
+  elif cmd.content == ';fleet fr':
+    await cmd.channel.send("**__Avions pour la «ruée vers le rang»__**\nLa plupart des temps, ceux qui suivent cette stratégie utiliseront de vieux avions à faibles coûtes d'exploitation, et des avions à faible coût par siège. Ceux-ci incluent les éléments suivants : \n\nIlyushin Il-96-300 (généralement abrégé en Il963 ou 963) - 367 000 $/siège \nBoeing/Douglas DC8-55* et DC8-73* - 410 000 $/siège et 406 000 $/siège respectivement \nBoeing 747-200B* - 445k$/siège \nBoeing 747-400 - 449k$/siège \nAirbus A380-800 (non recommandé) - 472k$/siège \n\nLes avions marqués d'un astérisque (*) sont des avions classiques . Ces avions nécessitent une licence, qui coûte plus de 150 pièces AM, à acheter sans avoir à payer 20 pièces AM à chaque fois que vous achetez un avion. \n\n __**Aircraft pour le Jeu de Rôle*___ \n\nUne compagnie aérienne de jeu de rôle essaiera le plus souvent a) d'imiter une compagnie aérienne spécifique, ou b) d'essayer simplement de créer une compagnie aérienne moderne générique. Si vous êtes le premier type de joueur de rôle, suivez la stratégie de flotte utilisée par votre compagnie aérienne réelle. Par exemple, si vous jouez le rôle de la compagnie aérienne irlandaise à bas prix Ryanair (FR/RYR), vous utiliserez exclusivement les Boeing 737-800 et 737-8-200. Si vous essayez de créer une compagnie aérienne moderne et générique, l'épine dorsale de votre flotte pourrait être constituée d'avions comme les familles A330 et A350 ou les Boeing 777 et 787 pour les vols long-courriers, et quelque chose comme le Boeing 737 ou l'Airbus A320 pour les vols plus courts.")
+  elif cmd.content == ';circuit en' or cmd.content == ';circuit':
+    await cmd.channel.send("__**Circuit**__\n\nA circuit is a group of routes with similar demand and demand distribution (i.e. similar numbers of passengers for economy (Y), business (J), and first (F) classes, as well as cargo (C). Circuits can be 168 hours (flown once a week), 84 hours (twice a week), 56 hours (thrice a week), 42 hours (four times a week), 28 hours (six times a week) or 24 hours (seven times a week). Because of this, 100 seats' capacity on a fully populated (seven aircraft) 168 hour circuit takes care of 100 demand. On a 84 hour circuit, it would fill 200 demand, on a 56 hour circuit 300 demand, on a 42 hour circuit 400 demand, and on a 24 hour circuit 700 demand. \n\nYour first LH 168hr circuit will cost around 200 million, the second one about 500M, the third one approximately 1.5B, the fourth one about 1.7B, and the fifth and thereafter roughly 2B.\n\nFor best efficiency, it is recommended that while your airline is growing, you purchase a new hub when the cost of a new circuit on your current hub is more expensive than the sum of the cost of a new hub and its 1st circuit.")
+  elif cmd.content == ';circuit fr':
+    await cmd.channel.send("_**Circuit*___\n\nUn circuit est un groupe d'itinéraires avec une demande et une répartition de la demande similaires (c'est-à-dire un nombre similaire de passagers pour les classes économique (Y), affaires (J) et première (F), ainsi que cargo (C). Les circuits peuvent durer 168 heures (volés une fois par semaine), 84 heures (deux fois par semaine), 56 heures (trois fois par semaine), 42 heures (quatre fois par semaine), 28 heures (six fois par semaine) ou 24 heures (sept fois par semaine). De ce fait, une capacité de 100 sièges sur un circuit de 168 heures entièrement peuplé (sept avions) prend en charge 100 demandes. Sur un circuit de 84 heures, il répondrait à 200 demandes, sur un circuit de 56 demande circuit 300 heures, demande circuit 400 heures 42 et demande demande circuit 700 heures 24. \n\nVotre premier circuit LH 168 heures coûtera environ 200 millions, le deuxième environ 500M, le troisième environ 1,5B, et le quatrième environ 1,7B, et le cinquième et ensuite environ 2B.\n\nPour une meilleure efficacité, il est recommandé que pendant que votre compagnie aérienne se développe, vous achetez un nouveau hub lorsque le coût d'un nouveau circuit sur votre curr ent hub est plus cher que la somme du coût d'un nouveau hub et de son 1er circuit.")
+  elif cmd.content == ';official en' or cmd.content == ';official':
+    await cmd.channel.send("If you want to report a bug with the game, or simply provide feedback or discuss elements of the game and its mechanics with the developers, the official Airlines Manager server created by Playrion can be accessed here: https://discord.gg/airlinesmanager")
+  elif cmd.content == ';official fr':
+    await cmd.channel.send("Si vous souhaitez signaler un bug avec le jeu, ou simplement faire part de vos commentaires ou discuter d'éléments du jeu et de ses mécanismes avec les développeurs, le serveur officiel d'Airlines Manager créé par Playrion est disponible ici : https://discord.gg/airlinesmanager")
+  elif cmd.content == ';rankrush en' or cmd.content == ';rankrush':
+    await cmd.channel.send("__**Rank Rush**__ \n\nRank rushing means you want to make as much money as possible, as fast as possible - since players are ranked in this game according to the amount of money they make, you will be \"rushing your way up the ranks,\" hence the name. This play style typically involves a long-haul economy-focused fleet and passenger strategy, operating mostly older aircraft with low cost per seat.")
+  elif cmd.content == ';rankrush fr':
+    await cmd.channel.send("_**Rush de classement**___ \n\nLa précipitation de classement signifie que vous voulez gagner autant d'argent que possible, aussi vite que possible - puisque les joueurs sont classés dans ce jeu en fonction de la somme d'argent qu'ils gagnent, vous serez \" gravir les échelons, \" d'où le nom. Ce style de jeu implique généralement une stratégie de flotte et de passagers long-courrier axée sur l'économie, exploitant principalement des avions plus anciens avec un faible coût par siège.")
+  elif cmd.content == ';roleplay en' or cmd.content == ';roleplay':
+    await cmd.channel.send("__**Role Play**__ \n\nRole play, as the name suggests, means you want to emulate an airline. This could be an airline from the 1970s, an actual modern airline, or just some random modern airline you want to create. Role playing puts more of an emphasis on realism (both in terms of aircraft configurations and planes operated - generally newer aircraft with less seats on board) than it does on profit. Note that as a result of this change your growth will necessarily be slower than most airlines.")
+  elif cmd.content == ';roleplay fr':
+    await cmd.channel.send("__**Jeu de rôle*___ \n\nLe jeu de rôle, comme son nom l'indique, signifie que vous voulez imiter une compagnie aérienne. Il peut s'agir d'une compagnie aérienne des années 1970, d'une véritable compagnie aérienne moderne ou simplement d'une compagnie aérienne moderne aléatoire que vous souhaitez créer. Le jeu de rôle met davantage l'accent sur le réalisme (à la fois en termes de configurations d'avions et d'avions exploités - généralement des avions plus récents avec moins de sièges à bord) que sur le profit. Notez qu'à la suite de ce changement, votre croissance sera nécessairement plus lente que la plupart des compagnies aériennes.")
+  elif cmd.content == ';cargo en' or cmd.content == ';cargo':
+     await cmd.channel.send("**__Cargo__** \n\n The cargo strategy focuses on carrying freight using dedicated cargo aircraft as opposed to belly freight onboard passenger aircraft. It is generally considered difficult to create a cargo airline from the ground up, as the game begins with minimal cargo demand. If you wish to pursue this strategy, it is recommended to start a passenger airline first and then convert it to a cargo airline once you are sufficiently profitable and have the relevant services researched. Cargo is generally considered less profitable than passenger service, but this is compensated for to some extent by the significantly increased cargo bonus, which acts as a tax credit.")
+  elif cmd.content == ';cargo fr':
+    await cmd.channel.send("*__Cargo__** \n\n La stratégie de fret se concentre sur le transport de fret à l'aide d'avions cargo dédiés, par opposition au fret aérien à bord d'avions de passagers. Il est généralement considéré comme difficile de créer une compagnie aérienne de fret à partir de zéro, car le jeu commence avec une demande de fret minimale. Si vous souhaitez poursuivre cette stratégie, il est recommandé de démarrer d'abord une compagnie aérienne de passagers, puis de la convertir en une compagnie aérienne de fret une fois que vous êtes suffisamment rentable et que vous avez recherché les services pertinents. Le fret est généralement considéré comme moins rentable que le service aux passagers, mais cela est compensé dans une certaine mesure par le bonus fret nettement accru, qui fait office de crédit d'impôt.")
+  elif cmd.content == ';efficiency en' or cmd.content == ';efficiency':
+     await cmd.channel.send("**Efficiency = (Structural Profit/Value) * 100%** \n\n1% is considered \"good\" for the average airline. Efficiency will drop as you expand due to higher taxes, maintenance costs,loan repayments, lease costs, alliance tax and higher salaries, and the 1% benchmark does not hold true for large airlines.")
+  elif cmd.content == ';efficiency fr':
+    await cmd.channel.send("** Efficacité = (Bénéfice structurel/valeur) * 100 %** \n\n1 % est considéré comme \"bon\" pour la compagnie aérienne moyenne. L'efficacité diminuera au fur et à mesure que vous vous développez en raison de l'augmentation des taxes, des coûts de maintenance, des remboursements de prêts, des coûts de location, de la taxe d'alliance et des salaires plus élevés, et la référence de 1 % n'est pas vraie pour les grandes compagnies aériennes.")
+  elif cmd.content == ';sp en' or cmd.content == ';SP en' or cmd.content == ';Sp en' or cmd.content == ';sp' or cmd.content == ';SP' or cmd.content == ';Sp':
+     await cmd.channel.send("Structural profit, or SP, is an average of the net income after all costs are paid. The formula is as follows: SP = Yesterday’s revenues (D-1) – yesterday’s payroll (D-1) – Maintenance costs (D-1) – weekly rental fees /7 – weekly loan repayments /7 – weekly alliance tax /7 – last deducted tax /7.")
+  elif cmd.content == ';sp fr':
+    await cmd.channel.send("SP = Revenus d'hier (J-1) - Masse d'hier (J-1) - Frais d'entretien (J-1) - Frais de location hebdomadaires /7 - Remboursements hebdomadaires d'emprunts /7 - Taxe alliance hebdomadaire /7 - Dernière retenue fiscale /7.")
+  elif cmd.content == ';staff en' or cmd.content == ';staff':
+     await cmd.channel.send("There are two types of staff: agency workers, and hired employees. Agency workers cannot be trained, and will incur a salary penalty, while hired employees are divided into four categories: recruits, entry level, professional, and managers. Recruits provide no bonus and can be trained in any career; entry level employees provide a single benefit in one characteristic; professionals provide a primary benefit in one characteristic and a smaller secondary benefit, and managers provide a primary benefit in one characteristic, a secondary benefit, and a minor tertiary benefit. If trained in the ratio of 1 manager to 100 combined professionals and/or entry level workers, managers will also reduce the salary of managed employees. It is possible to increase staff benefits and decrease training costs in the staff section of R&D.")
+  elif cmd.content == 'staff fr':
+    await cmd.channel.send("Il existe deux types de personnel : les travailleurs intérimaires et les employés embauchés. Les travailleurs intérimaires ne peuvent pas être formés et encourront une pénalité salariale, tandis que les employés embauchés sont divisés en quatre catégories : recrues, niveau d'entrée, professionnel et gestionnaires. Les recrues n'offrent aucun bonus et peuvent être formées dans n'importe quelle carrière ; les employés de niveau d'entrée offrent un seul avantage dans une caractéristique ; les professionnels fournissent un avantage principal dans une caractéristique et un avantage secondaire plus petit, et les gestionnaires fournissent un avantage principal dans une caractéristique, un avantage secondaire et un avantage tertiaire mineur. S'ils sont formés au ratio de 1 gestionnaire pour 100 professionnels combinés et/ou travailleurs de niveau d'entrée, les gestionnaires réduiront également le salaire des employés gérés. Il est possible d'augmenter les avantages du personnel et de diminuer les coûts de formation dans la section du personnel de la R&D.")
+  elif cmd.content == ';gp en' or cmd.content == ';GP en' or cmd.content == ';Gp en' or cmd.content == ';gp' or cmd.content == ';GP' or cmd.content == ';Gp':
+    await cmd.channel.send("**__Group purchase__** \n\nA group purchase is where everyone in the alliance puts the aircraft they want to buy onto a massive shopping list. It is beneficial because the discount is calculated on the total price of everyone's orders from a specific manufacturer - thus it is easier to get higher discounts, because the alliance as a whole will almost certainly spend more money than one person. Depending on the alliance, there may be set validation times and dates for GPs, or the purchase may be validated upon reaching the maximum discount. Please ask your alliance leadership or look at the description of your alliance in-game to get the specifics of your alliance's GP validation schedule. It takes 12 hours for an aircraft to be delivered following validation. To start a new group purchase (new manufacturer), click on the \"New Purchase\" button and then choose either the type or manufacturer of the aircraft. From there, scroll through the catalogue and purchase a plane as you normally would. To add to an existing group purchase, scroll down to the group purchase from the manufacturer you intend to buy from, and click \"buy in this catalogue.\" \n\nLink to Alliance GP => http://www.airlines-manager.com/alliance/purchaselist")
+  elif cmd.content == ';gp fr':
+    await cmd.channel.send("**__Achat groupé__** \n\nUn achat groupé est un processus par lequel tous les membres de l'alliance placent l'avion qu'ils souhaitent acheter sur une liste d'achats massive. C'est avantageux car la remise est calculée sur le prix total des commandes de chacun auprès d'un fabricant spécifique - il est donc plus facile d'obtenir des remises plus élevées, car l'alliance dans son ensemble dépensera presque certainement plus d'argent qu'une personne. Selon l'alliance, des heures et des dates de validation peuvent être définies pour les médecins généralistes, ou l'achat peut être validé lorsque la remise maximale est atteinte. Veuillez demander à la direction de votre alliance ou consultez la description de votre alliance dans le jeu pour obtenir les détails du calendrier de validation GP de votre alliance. Il faut compter 12 heures pour qu'un avion soit livré après validation. Pour démarrer un nouvel achat groupé (nouveau constructeur), cliquez sur le bouton \"Nouvel achat\" puis choisissez soit le type soit le constructeur de l'avion. À partir de là, faites défiler le catalogue et achetez un avion comme vous le feriez normalement. Pour ajouter à un achat de groupe existant, faites défiler jusqu'à l'achat de groupe auprès du fabricant auprès duquel vous avez l'intention d'acheter et cliquez sur \"acheter dans ce catalogue.\" \n\nLien vers Alliance GP => http://www.airlines -manager.com/alliance/purchaselist")
+  elif cmd.content == ';services en':
+    await cmd.channel.send("**__Services__** \n\nThere are nine services in this game: \n\nEntertainment - increases long-haul passenger demand for all classes. Recommended for all routes longer than 3 749 km, and most effective on routes between 10 050 and 14 000 km long. \n\nPrice Attractiveness - increases short-haul passenger demand for all classes. Recommended for all routes shorter than 3 749 km, and most effective on routes between 500 and 1 849 km long. \n\nCosts - decreases the \"other\" costs of aircraft operation if this statistic is negative, and increases them if it is positive. Negative costs are recommended for low-cost carriers. \n\nAncillary Revenue - provides a small boost to your revenues. Recommended for low-cost carriers. \n\nComfort - increases the price you can charge for tickets without losing demand, though increasing comfort increases costs. Recommended for 'luxury' carriers. \n\nSafety - increases first class and slightly increases business class demand on all flights, regardless of route length. Recommended for tri-class players. \n\nPunctuality - increases economy class and slightly increases business class demand on all flights, regardless of route length. Recommended for low-cost carriers. \n\nOffer Attractiveness - increases the cargo demand on all routes. Required for successful operation of a cargo airline. \n\nDelivery Speed - increases the price you can charge for a ton of cargo without losing demand. Recommended for successful operation of a cargo airline.")
+  elif cmd.content == ';services fr':
+    await cmd.channel.send("**__Services__** \n\nIl y a neuf services dans ce jeu : \n\nDivertissement - augmente la demande de passagers long-courriers pour toutes les classes. Recommandé pour tous les itinéraires de plus de 3 749 km, et plus efficace sur les itinéraires entre 10 050 et 14 000 km. \n\nAttractivité des prix - augmente la demande de passagers court-courriers pour toutes les classes. Recommandé pour tous les itinéraires de moins de 3 749 km, et plus efficace sur les itinéraires entre 500 et 1 849 km de long. \n\nCoûts - diminue les \"autres\" coûts d'exploitation de l'avion si cette statistique est négative, et les augmente si elle est positive. Les coûts négatifs sont recommandés pour les transporteurs à bas prix. \n\nRevenus auxiliaires - fournit un petit coup de pouce à vos revenus. Recommandé pour les transporteurs à bas prix. \n\nConfort - augmente le prix que vous pouvez facturer pour les billets sans perdre la demande, bien que l'augmentation du confort augmente les coûts. Recommandé pour les transporteurs « de luxe ». \n\nSécurité - augmente la première classe et augmente légèrement la demande en classe affaires sur tous les vols, quelle que soit la longueur de l'itinéraire. Recommandé pour les joueurs tri-classes. \n\nPonctualité - augmente la classe économique et augmente légèrement la demande en classe affaires sur tous les vols, quelle que soit la longueur de l'itinéraire. Recommandé pour les transporteurs à bas prix. \n\nAttractivité de l'offre - augmente la demande de fret sur tous les itinéraires. Nécessaire au bon fonctionnement d'une compagnie aérienne de fret. \n\nVitesse de livraison - augmente le prix que vous pouvez facturer pour une tonne de fret sans perdre la demande. Recommandé pour le bon fonctionnement d'une compagnie aérienne de fret.")
+  elif cmd.content == ';alliance en' or cmd.content == ';alliance':
+    await cmd.channel.send("**__Alliances__** \n\nAlliances are several players who gather for common interests – in addition to their passion for Airlines Manager of course! – to develop their airline more quickly. Indeed, to be part of an alliance means that you are part of community of players from which you can get valuable advice to develop your airline. In addition to the friendly atmosphere created by the alliance, there are two major benefits that can make your airline grow, namely group purchases and hub sharing. For more information on group purchases, type ;gp. For more information on hub sharing, type ;hubshare")
+  elif cmd.content == ';alliance fr':
+    await cmd.channel.send("**__Alliances__** \n\nLes alliances sont plusieurs acteurs qui se réunissent pour des intérêts communs – en plus de leur passion pour Airlines Manager bien sûr ! – de développer plus rapidement leur compagnie aérienne. En effet, faire partie d'une alliance signifie que vous faites partie d'une communauté d'acteurs auprès de laquelle vous pouvez obtenir de précieux conseils pour développer votre compagnie aérienne. En plus de l'ambiance conviviale créée par l'alliance, il y a deux avantages majeurs qui peuvent faire grandir votre compagnie aérienne, à savoir les achats groupés et le partage de hub. Pour plus d'informations sur les achats groupés, tapez ;gp. Pour plus d'informations sur le partage de hub, tapez ;hubshare")
+  elif cmd.content == ';ranking en' or cmd.content == ';ranking':
+    await cmd.channel.send("**__Airline Ranking__** \n\nYour rank is calculated from the average of your structural profits over the last seven days. It is updated every day at midnight. The general ranking provides the following information: \n\nRank: rank in the general ranking among all players. \n\nAirline: name of the airline. Airline value: the airline value represents the total of your airline’s assets. \n\nStructural profit: the average of structural profits over the last seven days. \n\nStars: number of stars of your airline")
+  elif cmd.content == ';ranking fr':
+    await cmd.channel.send("**__Classement des compagnies aériennes__** \n\nVotre classement est calculé à partir de la moyenne de vos bénéfices structurels au cours des sept derniers jours. Il est mis à jour tous les jours à minuit. Le classement général fournit les informations suivantes : \n\nRang : rang dans le classement général parmi tous les joueurs. \n\nCompagnie aérienne : nom de la compagnie aérienne. Valeur de la compagnie aérienne : la valeur de la compagnie aérienne représente le total des actifs de votre compagnie aérienne. \n\nBénéfice structurel : la moyenne des bénéfices structurels au cours des sept derniers jours. \n\nÉtoiles : nombre d'étoiles de votre compagnie aérienne")
+  elif cmd.content == ';hubsharing en':
+    await cmd.channel.send("**__Hub Sharing__** \n\nSharing a hub is a procedure within an alliance which enables you to own a hub at a lower cost thanks to a sharing contract between you and one member of your alliance. It is a way of expanding your airline more quickly! Moreover, if you share one of your hubs, you can make profits by applying a tax on shared routes. The member who will have to pay this tax is the member with whom you share your hub. However, this member will also make profits by increasing the number of routes he/she can have on your hub. You can share a hub with a member of your alliance by drafting a contract between the two airlines. A shared hub yields a profit of 50% of the current demand at best, with an operating cost much lower than a purchase. In case of contract termination, all hubs and routes will be automatically resold and your aircraft will be automatically assigned to one of your hubs. If you terminate a contract without the agreement of the other party, you will have to pay 10% of the total amount your associate has invested in your hub. Therefore, it is recommended to negotiate rather than terminate a contract.")
+  elif cmd.content == ';hubsharing fr':
+    await cmd.channel.send("**__Hub Sharing__** \n\nLe partage d'un hub est une procédure au sein d'une alliance qui vous permet de posséder un hub à moindre coût grâce à un contrat de partage entre vous et un membre de votre alliance. C'est un moyen de développer votre compagnie aérienne plus rapidement ! De plus, si vous partagez l'un de vos hubs, vous pouvez réaliser des bénéfices en appliquant une taxe sur les trajets partagés. Le membre qui devra payer cette taxe est le membre avec qui vous partagez votre hub. Cependant, ce membre fera également des bénéfices en augmentant le nombre de routes qu'il peut avoir sur votre hub. Vous pouvez partager un hub avec un membre de votre alliance en rédigeant un contrat entre les deux compagnies aériennes. Un hub partagé rapporte au mieux un profit de 50 % de la demande actuelle, avec un coût d'exploitation bien inférieur à un achat. En cas de résiliation du contrat, tous les hubs et itinéraires seront automatiquement revendus et votre avion sera automatiquement affecté à l'un de vos hubs. Si vous résiliez un contrat sans l'accord de l'autre partie, vous devrez payer 10 % du montant total que votre associé a investi dans votre hub. Il est donc recommandé de négocier plutôt que de résilier un contrat.")
+  elif cmd.content == ';loans en' or cmd.content == ';loans':
+    await cmd.channel.send("__**Types of Loan**__ \n\n**Express Loan**\n\nThe express loan allows you to borrow money quickly without asking for the financial markets’ assistance. \nRequested amount: you can ask the amount you want as long as it does not exceed the maximum amount of the bank. \nLoan period: you can choose the loan period, this will define the amount to repay every week. The possible period depends on the bank. The longer the loan period, the higher your initial interest rate. However, a short-term loan will have a more important impact on your structural profit. \nFinancial charges: total interest paid on the principal of your loan, depending on the interest rate. This amount is added to the requested amount to determine the total cost of the loan. \nTotal cost of the loan: requested amount plus financial charges, this amount determines the weekly payment. \nWeekly payment: total amount you will have to pay every week to repay this loan. It is calculated from the total cost of the loan and the selected loan period. \n\n**Financial Market Loan** \nLoans on financial markets are different from express loans and have no impact on them. Thus, loans on financial markets allow you to borrow an additional amount. The management organizations of financial markets will assess your capacity to forecast your growth rate. To do so, you will have to forecast your SP on D+8. The more your SP estimate will be close to your SP on D+8, the more the rating you are given by your banks will change positively. The rating ranges from C to AAA: The principle of loans on financial markets is to estimate your SP on D+8 to prove to your bank you can put words into action. Thus, the rating calculation of the loan on financial markets is made on D+8 and is based on the Structural Profit of D+7 (the day before) \n\n**General tip: Loans work differently in this game than in real life. Do not pay back your loans early!**")
+  elif cmd.content == ';loans fr':
+    await cmd.channel.send("__**Types de prêt**__ \n\n**Prêt express**\n\nLe prêt express vous permet d'emprunter de l'argent rapidement sans demander l'aide des marchés financiers. \nMontant demandé : vous pouvez demander le montant que vous souhaitez tant qu'il ne dépasse pas le montant maximum de la banque. \nDurée du prêt : vous pouvez choisir la durée du prêt, celle-ci définira le montant à rembourser chaque semaine. La période possible dépend de la banque. Plus la durée du prêt est longue, plus votre taux d'intérêt initial est élevé. Cependant, un prêt à court terme aura un impact plus important sur votre résultat structurel. \nFrais financiers : total des intérêts payés sur le principal de votre prêt, en fonction du taux d'intérêt. Ce montant s'ajoute au montant demandé pour déterminer le coût total du prêt. \nCoût total du prêt : montant demandé majoré des frais financiers, ce montant détermine le versement hebdomadaire. \nPaiement hebdomadaire : montant total que vous devrez payer chaque semaine pour rembourser ce prêt. Il est calculé à partir du coût total du prêt et de la durée de prêt choisie. \n\n**Prêt sur les marchés financiers** \nLes prêts sur les marchés financiers sont différents des prêts express et n'ont aucun impact sur eux. Ainsi, les prêts sur les marchés financiers vous permettent d'emprunter un montant supplémentaire. Les organismes de gestion des marchés financiers évalueront votre capacité à prévoir votre taux de croissance. Pour cela, vous devrez prévoir votre SP à J+8. Plus votre estimation de SP sera proche de votre SP à J+8, plus la note qui vous sera attribuée par vos banques évoluera positivement. La notation va de C à AAA : Le principe des prêts sur les marchés financiers est d'estimer votre SP à J+8 pour prouver à votre banque que vous pouvez passer des mots à l'action. Ainsi, le calcul de la notation du prêt sur les marchés financiers se fait à J+8 et se base sur le Profit Structurel de J+7 (la veille)")
+  elif cmd.content == ';alliancerank en' or cmd.content == ';alliancerank':
+    await cmd.channel.send("__**Alliance ranking**__ \n\nAlliance ranking is calculated by the total discount granted on group purchases of all manufactureres in the past 30 days. Alliance ranking is updated several times a day.")
+  elif cmd.content == ';alliancerank fr':
+    await cmd.channel.send("__**Classement Alliance**__ \n\nLe classement alliance est calculé par la remise totale accordée sur les achats groupés de tous les fabricants au cours des 30 derniers jours. Le classement de l'alliance est mis à jour plusieurs fois par jour.")
+  elif cmd.content == ';research en' or cmd.content == ';research':
+    await cmd.channel.send("Research is carried out in the laboratory to improve the various characteristics of your airline. Your laboratory requires a special form of funding called Research Dollars or R$, which you can convert from regular money. The conversion limit ranges from 5 million to 40 million dollars per day, and the exchange rate varies randomly.")
+  elif cmd.content == ';research fr':
+    await cmd.channel.send("Des recherches sont menées en laboratoire pour améliorer les différentes caractéristiques de votre compagnie aérienne. Votre laboratoire a besoin d'une forme spéciale de financement appelée Research Dollars ou R$, que vous pouvez convertir à partir d'argent ordinaire. La limite de conversion varie de 5 millions à 40 millions de dollars par jour, et le taux de change varie de manière aléatoire.")
+  elif cmd.content == ';tax en' or cmd.content == ';tax':
+    await cmd.channel.send("Each week, you pay income tax depending on how much money you make. Your weekly revenue is split into brackets, and the money in each bracket is taxed at a certain rate. This rate varies from 0% for the lowest bracket, to 69% for the highest bracket (above 7 billion dollars of revenue per week). This tax generally accounts for 3 days worth of profits, and can be paid either on Monday, or in three installments on Monday, Wednesday, and Friday. You can reduce tax by purchasing a tax credit from the workshop, or by carrying extra cargo - you are refunded money equal to 45% of the cost of fuel used to transport cargo each week.")
+  elif cmd.content == ';tax fr':
+    await cmd.channel.send("Chaque semaine, vous payez de l'impôt sur le revenu en fonction de votre revenu. Cet impôt représente généralement 3 jours de bénéfices, et peut être payé soit le lundi, soit en trois versements le lundi, mercredi et vendredi.")
+  elif cmd.content == ';bugreport' or cmd.content == ';bugreport en':
+    await cmd.channel.send("Found a bug? DM Invisible#4190 on Discord with steps to reproduce, intended outcome, and actual outcome.")
+  elif cmd.content == ';bugreport fr':
+    await cmd.channel.send("Vous avez trouvé un bug ? DM Invisible#4190 sur Discord avec les étapes à reproduire, le résultat escompté et le résultat réel.")
+  elif cmd.content == ';help en' or cmd.content == ';help':
+    await cmd.channel.send("**__AM Quick Reference Bot - List of Commands__** \n\n**Plane Info** \nSyntax: ;planeinfo[model][language] \n\nDescription: Returns the name, range, speed, year of introduction, category, and seat capacity of the given aircraft. Enter the model name exactly as it appears in game: for example, 777-300ER, or A300-600R. Language can either be en for English, or fr for French. If no language is specified, the command will return results in English. \n\n**Audit Fare** \nSyntax: ;auditfare [distance] [comfort] [delivery speed] [mode] [language] \n\nDescription: Given the distance in km, with units stripped (e.g. 8000 for a 8000km-long route), the distance, comfort, and delivery speed characteristics of the airline, and the game mode, returns the ideal fares for all classes to maximize profit. If no language is given, the command returns results in English.\n")
+    await cmd.channel.send("\n\n**Fleet** \nSyntax: ;fleet [language] \n\nDescription: Gives fleet compositions for the two main strategies in the game. Language can either be en for English, or fr for French. If no language is specified, the command will return results in English. \n\n**Staff** \nSyntax: ;staff [language] \n\nDescription: Provides and overview of the staff system and its purpose. Language can either be en for English, or fr for French. If no language is specified, the command will return results in English. \n\n**Circuit** \nSyntax: ;circuit [language] \n\nDescription: Provides an overview of the circuit strategy for Airlines Manager, covering various lengths of circuits from 24h to 168h. Language can either be en for English, or fr for French. If no language is specified, the command will return results in English.\n")
+    await cmd.channel.send("\n\n**Rank Rush** \nSyntax: ;rankrush [language] \n\nDescription: Explains the rank rush strategy. Language can either be en for English, or fr for French. If no language is specified, the command will return results in English. \n\n**Roleplay** \nSyntax: ;roleplay [language] \n\nDescription: Explains the role play strategy. Language can either be en for English, or fr for French. If no language is specified, the command will return results in English. \n\n**Services** \nSyntax: ;services [language] \n\nDescription: Explains the game's services, what they do, and recommended usage. Language can either be en for English, or fr for French. If no language is specified, the command will return results in English. \n\n**Loans** \nSyntax: ;loans [language] \n\nDescription: Explains the way that the two types of loans work in this game. Language can either be en for English, or fr for French. If no language is specified, the command will return results in English.\n")
+    await cmd.channel.send(" \n\n**Structural Profit** \nSyntax: ;SP [language] \n\nDescription: Gives the definition and formula for structural profit. Language can either be en for English, or fr for French. If no language is specified, the command will return results in English. \n\n**Efficiency** \nSyntax: ;efficiency [language] \n\nDescription: Explains the efficiency metric and how it is calculated. Language can either be en for English, or fr for French. If no language is specified, the command will return results in English. \n\n**Income Tax** \nSyntax: ;tax [language] \n\nDescription: Explains what income tax is in the game and how much you can expect to get taxed. Language can either be en for English, or fr for French. If no language is specified, the command will return results in English. \n\n**Bug Report** \nSyntax: ;bugreport [language] \n\nDescription: Gives instructions on how to report a bug with the bot and what to include wiht a bug report. Language can either be en for English, or fr for French. If no language is specified, the command will return results in English.\n")
+    await cmd.channel.send("\n\n**Route Tax** \nSyntax: ;routetax [IATA code of departure airport] [IATA code of arrival airport] [Aircraft Category] [Language] \n\nDescription: Given language,  category of departure and return airports, and category of aircraft, this command calculates the amount of tax paid for each round-trip on a route between those routes and returns the result in the given language. Language can either be en for English, or fr for French. If no language is specified, the command will return results in English.\n\n**Can I Fly This Route?** \nSyntax: ;canfly [aircraft category] [aircraft range] [IATA code of departure airport] [IATA code of arrival airport] [language] \n\nDescription: Given language,  category of departure and return airports, and category of aircraft, this command calculates the amount of tax paid for each round-trip on a route between those routes and returns the result in the given language. Language can either be en for English, or fr for French. If no language is specified, the command will return results in English.\n")
+    await cmd.channel.send("\n\n**Maintenance Cost Estimation** \nSyntax: ;maintenance [aircraft catalogue price] [wear] [age] [level of hangars research unlocked] [language] \n\nDescription: Given aircraft price, wear, age, level of hangars research unlocked, and language, this function tells you the estimated cost of an A and/or D check for an aircraft. This is best used to determine whether or not it is worth it to purchase an aircraft off the secondhand market. Language can either be en for English, or fr for French. If no language is specified, the command will return results in English.\n\n**Secondhand Market Tax Estimation** \nSyntax: ;shmtax [aircraft catalogue price] [bid price] [language] \n\nDescription: Given aircraft price, bid price, and language, this function tells you how much money you will need to pay in commission for a successful sale on the secondhand market at a given price. Language can either be en for English, or fr for French. If no language is specified, the command will return results in English.\n")
+    await cmd.channel.send("\n\n**Airlines Manager Subreddit** \nSyntax: ;reddit [language] \n\nDescription: Links the Airlines Manager subreddit . Language can either be en for English, or fr for French. If no language is specified, the command will return results in English.\n\n**Airlines Manager Official** \nSyntax: ;official [language] \n\nDescription: Links the Airlines Manager Official discord server, created by Playrion. Language can either be en for English, or fr for French. If no language is specified, the command will return results in English.\n\n**Maximum Flight Distance** \nSyntax: ;maxdistance [time] [speed] [language]\n\nDescription: Takes time and speed and returns the maximum flyable distance within that time. Since this is not based on aircraft model, maximum ranges are not accounted for. Language can either be en for English, or fr for French. If no language is specified, the command will return results in English.\n")
+    await cmd.channel.send("\n\n**Flight Time** \nSyntax: ;flighttime [speed] [distance] [language] \n\nDescription: Takes speed and distance and returns the flight time for a round trip. Since this is not based on aircraft model, aircraft ranges are not accounted for. Language can either be en for English, or fr for French. If no language is specified, the command will return results in English. \n\n**Help** \nSyntax: ;help \n\nDescription: Returns a list of all commands, their syntaxes, and descriptions in English.")
+token = os.environ["token"]
+keep_alive()
+client.run(os.environ["token"])

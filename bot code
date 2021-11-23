@@ -237,7 +237,7 @@ async def on_message(cmd):
      await cmd.channel.send("**Efficiency = (Structural Profit/Value) * 100%** \n\n1% is considered \"good\" for the average airline. Efficiency will drop as you expand due to higher taxes, maintenance costs,loan repayments, lease costs, alliance tax and higher salaries, and the 1% benchmark does not hold true for large airlines.")
   elif cmd.content == ';efficiency fr':
     await cmd.channel.send("** Efficacité = (Bénéfice structurel/valeur) * 100 %** \n\n1 % est considéré comme \"bon\" pour la compagnie aérienne moyenne. L'efficacité diminuera au fur et à mesure que vous vous développez en raison de l'augmentation des taxes, des coûts de maintenance, des remboursements de prêts, des coûts de location, de la taxe d'alliance et des salaires plus élevés, et la référence de 1 % n'est pas vraie pour les grandes compagnies aériennes.")
-  elif cmd.content == ';sp en' or cmd.content == ';SP en' or cmd.content == ';Sp en' or cmd.content == ';sp' or cmd.content == ';SP' or cmd.content == ';Sp':
+  elif cmd.content.toLowerCase() == ';sp en':
      await cmd.channel.send("Structural profit, or SP, is an average of the net income after all costs are paid. The formula is as follows: SP = Yesterday’s revenues (D-1) – yesterday’s payroll (D-1) – Maintenance costs (D-1) – weekly rental fees /7 – weekly loan repayments /7 – weekly alliance tax /7 – last deducted tax /7.")
   elif cmd.content == ';sp fr':
     await cmd.channel.send("SP = Revenus d'hier (J-1) - Masse d'hier (J-1) - Frais d'entretien (J-1) - Frais de location hebdomadaires /7 - Remboursements hebdomadaires d'emprunts /7 - Taxe alliance hebdomadaire /7 - Dernière retenue fiscale /7.")
